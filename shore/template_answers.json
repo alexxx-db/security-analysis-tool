@@ -1,0 +1,13 @@
+{
+  "catalog": "sec_ops",
+  "cloud": "azure",
+  "latest_lts": "15.4.x-scala2.12",
+  "node_type": "Standard_DS3_v2",
+  "serverless": false,
+  "driver_schedule": "0 30 6 ? * Mon",
+  "secrets_scanner_schedule": "0 30 5 ? * *",
+  "job_timezone": "America/Chicago",
+  "enable_brickhound": true,
+  "brickhound_schedule": "0 0 5 ? * *",
+  "warehouse_id": "eda6b2cb326f8e46"
+}
