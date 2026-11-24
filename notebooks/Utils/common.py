@@ -153,9 +153,11 @@ def insertIntoControlTable(workspace_id, id, score, additional_details):
     jsonstr = json.dumps(additional_details)
     # Escape single quotes for SQL by doubling them
     jsonstr = jsonstr.replace("'", "''")
+    safe_workspace_id = str(workspace_id).replace("'", "''")
+    safe_id = str(id).replace("'", "''")
     sql = """INSERT INTO {}.`security_checks` (`workspaceid`, `id`, `score`, `additional_details`, `run_id`, `check_time`)
             VALUES ('{}', '{}', cast({} as int),  from_json('{}', 'MAP<STRING,STRING>'), {}, cast({} as timestamp))""".format(
-        json_["analysis_schema_name"], workspace_id, id, score, jsonstr, run_id, ts
+        json_["analysis_schema_name"], safe_workspace_id, safe_id, score, jsonstr, run_id, ts
     )
     spark.sql(sql)
 
@@ -184,9 +186,10 @@ def insertIntoInfoTable(workspace_id, name, value, category):
     jsonstr = jsonstr.replace("'", "''")
     safe_name = name.replace("'", "''")
     safe_category = category.replace("'", "''")
+    safe_workspace_id = str(workspace_id).replace("'", "''")
     sql = """INSERT INTO {}.`account_info` (`workspaceid`,`name`, `value`, `category`, `run_id`, `check_time`)
             VALUES ('{}','{}', from_json('{}', 'MAP<STRING,STRING>'), '{}', '{}', cast({} as timestamp))""".format(
-        json_["analysis_schema_name"], workspace_id, safe_name, jsonstr, safe_category, run_id, ts
+        json_["analysis_schema_name"], safe_workspace_id, safe_name, jsonstr, safe_category, run_id, ts
     )
     ### print(sql)
     spark.sql(sql)

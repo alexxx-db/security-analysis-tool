@@ -29,6 +29,7 @@ def install(client: WorkspaceClient, answers: dict, profile: str):
         "driver_schedule": answers.get("driver_schedule", "0 0 8 * * ?"),
         "secrets_scanner_schedule": answers.get("secrets_scanner_schedule", "0 0 8 * * ?"),
         "job_timezone": answers.get("job_timezone", "UTC"),
+        "notification_email": answers.get("notification_email", ""),
         "enable_brickhound": answers.get("enable_brickhound", False),
         "brickhound_schedule": answers.get("brickhound_schedule", "0 0 2 * * ?"),
         "warehouse_id": answers.get("warehouse", []).get("id", None),

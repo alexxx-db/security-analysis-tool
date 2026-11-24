@@ -88,6 +88,11 @@ def form():
             message="Job schedule timezone (IANA timezone ID)",
             default="UTC",
         ),
+        Text(
+            name="notification_email",
+            message="Email for job failure alerts (leave blank to disable)",
+            default="",
+        ),
     ]
 
     # Permissions Analysis Configuration
@@ -214,7 +219,7 @@ def generate_secrets(client: WorkspaceClient, answers: dict, cloud_type: str):
         client.secrets.put_secret(
             scope=scope_name,
             key="use-sp-auth",
-            string_value=True,
+            string_value="true",
         )
 
     for value in answers.keys():

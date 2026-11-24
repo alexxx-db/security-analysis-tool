@@ -45,6 +45,12 @@ variable "notification_email" {
   default     = ""
 }
 
+variable "sat_repo_tag" {
+  type        = string
+  description = "Git tag of the security-analysis-tool repo to clone into the workspace. Pinning a released tag keeps deployments reproducible instead of tracking main."
+  default     = "v1.0.0"
+}
+
 variable "provisioner_name" {
   type        = string
   description = "Optional owner tag value for SQL warehouse compute resources; defaults to the current user."

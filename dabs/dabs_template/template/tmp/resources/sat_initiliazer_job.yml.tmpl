@@ -4,16 +4,18 @@ resources:
       name: "SAT Initializer Notebook (one-time)"
       tags:
         Application: SAT
+      {{- if .notification_email }}
+      email_notifications:
+        on_failure:
+          - {{.notification_email}}
+      {{- end }}
+      max_concurrent_runs: 1
 
       tasks:
         - task_key: "sat_initializer"
 
           {{- if eq .serverless false }}
           job_cluster_key: job_cluster
-
-          libraries:
-            - pypi:
-                package: dbl-sat-sdk
           {{- else }}
           environment_key: "default"
           {{- end }}

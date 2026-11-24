@@ -3,6 +3,10 @@ resource "databricks_job" "initializer" {
   tags = {
     Application = "SAT"
   }
+  max_concurrent_runs = 1
+  email_notifications {
+    on_failure = [var.notification_email == "" ? data.databricks_current_user.me.user_name : var.notification_email]
+  }
   dynamic "job_cluster" {
     for_each = var.run_on_serverless ? [] : [1]
     content {
@@ -44,14 +48,6 @@ resource "databricks_job" "initializer" {
     task_key        = "Initializer"
     job_cluster_key = var.run_on_serverless ? null : "job_cluster"
     environment_key = var.run_on_serverless ? "default" : null
-    dynamic "library" {
-      for_each = var.run_on_serverless ? [] : [1]
-      content {
-        pypi {
-          package = "dbl-sat-sdk"
-        }
-      }
-    }
     notebook_task {
       notebook_path = "${databricks_repo.security_analysis_tool.path}/notebooks/security_analysis_initializer"
     }
@@ -105,19 +101,16 @@ resource "databricks_job" "driver" {
     task_key        = "Driver"
     job_cluster_key = var.run_on_serverless ? null : "job_cluster"
     environment_key = var.run_on_serverless ? "default" : null
-    dynamic "library" {
-      for_each = var.run_on_serverless ? [] : [1]
-      content {
-        pypi {
-          package = "dbl-sat-sdk"
-        }
-      }
-    }
     notebook_task {
       notebook_path = "${databricks_repo.security_analysis_tool.path}/notebooks/security_analysis_driver"
     }
   }
 
+  max_concurrent_runs = 1
+  timeout_seconds     = 14400 # 4 hours; covers large multi-workspace accounts
+  email_notifications {
+    on_failure = [var.notification_email == "" ? data.databricks_current_user.me.user_name : var.notification_email]
+  }
   schedule {
     #E.G. At 08:00:00am, on every Monday, Wednesday and Friday, every month; For more: http://www.quartz-scheduler.org/documentation/quartz-2.3.0/tutorials/crontrigger.html
     quartz_cron_expression = var.driver_cron_expression
@@ -176,19 +169,15 @@ resource "databricks_job" "secrets_scanner" {
     task_key        = "secrets_scanner"
     job_cluster_key = var.run_on_serverless ? null : "job_cluster"
     environment_key = var.run_on_serverless ? "default" : null
-    dynamic "library" {
-      for_each = var.run_on_serverless ? [] : [1]
-      content {
-        pypi {
-          package = "dbl-sat-sdk"
-        }
-      }
-    }
     notebook_task {
       notebook_path = "${databricks_repo.security_analysis_tool.path}/notebooks/security_analysis_secrets_scanner"
     }
   }
 
+  max_concurrent_runs = 1
+  email_notifications {
+    on_failure = [var.notification_email == "" ? data.databricks_current_user.me.user_name : var.notification_email]
+  }
   schedule {
     quartz_cron_expression = var.secrets_scanner_cron_expression
     timezone_id            = var.job_schedule_timezone_id

@@ -1,7 +1,7 @@
 #Make sure Files in Repos option is enabled in Workspace Admin Console > Workspace Settings
 
 resource "databricks_repo" "security_analysis_tool" {
-  url    = "https://github.com/databricks-industry-solutions/security-analysis-tool.git"
-  branch = "main"
-  path   = "/Repos/Applications/SAT_TF"
+  url  = "https://github.com/databricks-industry-solutions/security-analysis-tool.git"
+  tag  = var.sat_repo_tag
+  path = "/Repos/Applications/SAT_TF"
 }

@@ -9,6 +9,10 @@ resource "databricks_job" "brickhound_denylist_candidates" {
     Application = "SAT"
   }
 
+  email_notifications {
+    on_failure = [var.notification_email == "" ? data.databricks_current_user.me.user_name : var.notification_email]
+  }
+
   dynamic "job_cluster" {
     for_each = var.run_on_serverless ? [] : [1]
     content {

@@ -36,6 +36,11 @@
             "description": "Job schedule timezone (IANA timezone ID)",
             "default": "UTC"
         },
+        "notification_email": {
+            "type": "string",
+            "description": "Email address for job failure notifications. Leave empty to disable.",
+            "default": ""
+        },
         "enable_brickhound": {
             "type": "boolean",
             "description": "Enable Permissions Analysis",

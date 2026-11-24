@@ -153,8 +153,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 
 def combine(ws):
-    processWorkspace(ws)
-    notifyworkspaceCompleted(ws.workspace_id, True)
+    try:
+        processWorkspace(ws)
+        notifyworkspaceCompleted(ws.workspace_id, True)
+    except Exception as e:
+        loggr.info(e)
+        notifyworkspaceCompleted(ws.workspace_id, False)
 
 
 if use_parallel_runs == True:

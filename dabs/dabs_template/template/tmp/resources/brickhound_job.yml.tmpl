@@ -31,6 +31,11 @@ resources:
       name: "SAT Permissions Analysis - Data Collection (Experimental)"
       tags:
         Application: SAT
+      {{- if .notification_email }}
+      email_notifications:
+        on_failure:
+          - {{.notification_email}}
+      {{- end }}
       schedule:
         quartz_cron_expression: "{{.brickhound_schedule}}"
         timezone_id: {{.job_timezone}}
@@ -40,9 +45,6 @@ resources:
         - task_key: "collect_permissions_data"
           {{- if eq .serverless false }}
           job_cluster_key: brickhound_cluster
-          libraries:
-            - pypi:
-                package: networkx
           {{- else }}
           environment_key: "default"
           {{- end }}
@@ -74,6 +76,11 @@ resources:
       name: "SAT Permissions Analysis - Shared to Account Users (Experimental)"
       tags:
         Application: SAT
+      {{- if .notification_email }}
+      email_notifications:
+        on_failure:
+          - {{.notification_email}}
+      {{- end }}
       schedule:
         quartz_cron_expression: "0 0 3 ? * SUN"
         timezone_id: {{.job_timezone}}
@@ -120,6 +127,11 @@ resources:
       name: "SAT Permissions Analysis - Privileged Non-IdP Identities (Experimental)"
       tags:
         Application: SAT
+      {{- if .notification_email }}
+      email_notifications:
+        on_failure:
+          - {{.notification_email}}
+      {{- end }}
       schedule:
         quartz_cron_expression: "0 0 4 ? * SUN"
         timezone_id: {{.job_timezone}}
@@ -166,6 +178,11 @@ resources:
       name: "SAT Permissions Analysis - Denylist Candidates (Experimental)"
       tags:
         Application: SAT
+      {{- if .notification_email }}
+      email_notifications:
+        on_failure:
+          - {{.notification_email}}
+      {{- end }}
       schedule:
         quartz_cron_expression: "0 0 5 ? * SUN"
         timezone_id: {{.job_timezone}}

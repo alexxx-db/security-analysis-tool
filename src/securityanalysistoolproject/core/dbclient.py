@@ -28,6 +28,11 @@ class SatDBClient:
     """
     # set of http error codes to throw an exception if hit. Handles client and auth errors
     http_error_codes = [401, 403]
+    # transient http statuses worth retrying with backoff
+    retryable_status_codes = frozenset([429, 500, 502, 503, 504])
+    max_http_attempts = 4
+    # OAuth tokens are valid for ~1h; refresh ~10 min early
+    token_ttl_secs = 3000
 
     def __init__(self, inp_configs):
         self._inp_configs = inp_configs
@@ -42,6 +47,10 @@ class SatDBClient:
         LoggingUtils.set_logger_level(self._verbosity)
         self._cluster_id=configs['clusterid'].strip()
         self._token = ''
+        # token cache: key -> (headers_dict, url, expiry_epoch)
+        self._token_cache = {}
+        self._active_token_key = None
+        self._active_refresh = None
         #self._raw_token = '' #for gcp this was populated in bootstrap notebook. Not anymore.
         # mastercreds not used anymore
         self._proxies = configs.get('proxies', {})
@@ -78,11 +87,43 @@ class SatDBClient:
             self._tenant_id = configs['tenant_id'].strip()   
 
 
-    def _update_token_master(self,endpoint=None):
+    def _cached_token(self, key):
+        '''return (headers, url) from the token cache if still fresh, else None'''
+        entry = self._token_cache.get(key)
+        if entry and entry[2] > time.time():
+            return entry[0], entry[1]
+        return None
+
+    def _store_token(self, key, headers, url):
+        '''store (headers, url) in the token cache'''
+        self._token_cache[key] = (headers, url, time.time() + self.token_ttl_secs)
+
+    def _invalidate_active_token(self):
+        '''drop the cached token that just failed and force a refresh'''
+        if self._active_token_key:
+            self._token_cache.pop(self._active_token_key, None)
+        if self._active_refresh is not None:
+            self._active_refresh()
+
+    def _update_token_master(self,endpoint=None,force=False):
         '''update token master in http header'''
         '''endpoint passed for azure since some go to accounts and some to azure mgmt'''
         LOGGR.info("in _update_token_master")
         #self._url=self._raw_url
+        if self._cloud_type == 'azure':
+            # azure master token scope differs between mgmt api and databricks accounts api
+            cache_key = 'master_azure_mgmt' if endpoint is None or "?api-version=" in endpoint else 'master_azure_acct'
+        else:
+            cache_key = f'master_{self._cloud_type}'
+        self._active_token_key = cache_key
+        self._active_refresh = lambda e=endpoint: self._update_token_master(e, force=True)
+        if not force:
+            cached = self._cached_token(cache_key)
+            if cached is not None:
+                self._token, self._url = cached
+                LOGGR.info('Master Account Token reused from cache')
+                return
+        oauth = None
         if(self._cloud_type == 'gcp'):
             self._url=self._ACCTURL
             oauth = self.getGCPTokenwithOAuth(True, self._client_id, self._client_secret)
@@ -107,16 +148,28 @@ class SatDBClient:
             self._token = {
                 "Authorization": f"Bearer {oauth}",
                 "User-Agent": "databricks-sat/0.1.0"
-            } 
+            }
+        if isinstance(oauth, str) and oauth:
+            self._store_token(cache_key, self._token, self._url)
         LOGGR.info(f'Master Account Token Updated!')
 
-    def _update_token(self,endpoint=None):
+    def _update_token(self,endpoint=None,force=False):
         '''update token in http header'''
         '''endpoint passed for azure since some go to accounts and some to azure mgmt'''
         #only use the sp auth workflow
         #self._url=self._raw_url #accounts api uses a different url
         LOGGR.info("in _update_token")
         self._url=self._raw_url
+        cache_key = f'ws_{self._cloud_type}'
+        self._active_token_key = cache_key
+        self._active_refresh = lambda e=endpoint: self._update_token(e, force=True)
+        if not force:
+            cached = self._cached_token(cache_key)
+            if cached is not None:
+                self._token, _ = cached
+                LOGGR.info('Token reused from cache')
+                return
+        oauth = None
         if self._cloud_type == 'aws':
             oauth = self.getAWSTokenwithOAuth(False, self._client_id, self._client_secret)
             self._token = {
@@ -134,7 +187,9 @@ class SatDBClient:
             self._token = {
             "Authorization": f"Bearer {oauth}",
             "User-Agent": "databricks-sat/0.1.0"
-            }   
+            }
+        if isinstance(oauth, str) and oauth:
+            self._store_token(cache_key, self._token, self._url)
         LOGGR.info(f'Token Updated!')
 
 
@@ -295,6 +350,34 @@ class SatDBClient:
             LOGGR.debug(f"type-{type(flatarr_1[0])}") #flatten4-200-type-<class 'list'>-type-<class 'dict'>
         return flatelem, flatarr_1, flathttpstatuscode
     
+    def _http_call_with_retry(self, method, endpoint, **kwargs):
+        '''single http call with bounded retry on transient errors and one 401 token refresh'''
+        retried_auth = False
+        for attempt in range(self.max_http_attempts):
+            try:
+                resp = method(endpoint, **kwargs)
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+                if attempt < self.max_http_attempts - 1:
+                    time.sleep(min(2 ** attempt, 30))
+                    continue
+                raise
+            if resp.status_code in self.retryable_status_codes and attempt < self.max_http_attempts - 1:
+                retry_after = resp.headers.get('Retry-After', '')
+                try:
+                    sleep_s = min(float(retry_after), 60) if retry_after else min(2 ** attempt, 30)
+                except ValueError:
+                    sleep_s = min(2 ** attempt, 30)
+                LOGGR.info(f"HTTP {resp.status_code} on {endpoint}; retrying in {sleep_s}s (attempt {attempt + 1}/{self.max_http_attempts})")
+                time.sleep(sleep_s)
+                continue
+            if resp.status_code == 401 and not retried_auth and self._active_refresh is not None:
+                retried_auth = True
+                LOGGR.info("HTTP 401; refreshing token and retrying once")
+                self._invalidate_active_token()
+                kwargs['headers'] = self._token
+                continue
+            return resp
+
     #return dictionary of elem and list of values
     def get_paginated(self, endpoint, reqtype="get", json_params=None, files_json=None, is_paginated=False):
         NUM_PAGES=10 #throttle as needed
@@ -303,26 +386,26 @@ class SatDBClient:
         for i in range(self._maxpages):
             LOGGR.debug(f"{endpoint}---{json_params}")
             if 'get' in reqtype:
-                raw_results = requests.get(endpoint, headers=self._token, params=json_params, timeout=60, proxies=self._proxies)
+                raw_results = self._http_call_with_retry(requests.get, endpoint, headers=self._token, params=json_params, timeout=60, proxies=self._proxies)
                 time.sleep(self._timebetweencalls) #throttle otherwise gives a too many requests error
             elif 'post' in reqtype:
                 if json_params is None:
                     LOGGR.info("Must have a payload in json_args param.")
                 if files_json:
-                    raw_results = requests.post(endpoint, headers=self._token,
+                    raw_results = self._http_call_with_retry(requests.post, endpoint, headers=self._token,
                                                 data=json_params, files=files_json, timeout=60, proxies=self._proxies)
                 else:
-                    raw_results = requests.post(endpoint, headers=self._token,
+                    raw_results = self._http_call_with_retry(requests.post, endpoint, headers=self._token,
                                                 json=json_params, timeout=60, proxies=self._proxies)
             elif 'put' in reqtype:
                 if json_params is None:
                     LOGGR.info("Must have a payload in json_args param.")                
-                raw_results = requests.put(endpoint, headers=self._token,
+                raw_results = self._http_call_with_retry(requests.put, endpoint, headers=self._token,
                                         json=json_params, timeout=60, proxies=self._proxies)                    
             elif 'patch' in reqtype:
                 if json_params is None:
                     LOGGR.info("Must have a payload in json_args param.")                
-                raw_results = requests.patch(endpoint, headers=self._token,
+                raw_results = self._http_call_with_retry(requests.patch, endpoint, headers=self._token,
                                 json=json_params, timeout=60, proxies=self._proxies)   
 
             http_status_code = raw_results.status_code
@@ -404,7 +487,7 @@ class SatDBClient:
             '/api/2.0/marketplace-exchange/exchanges-for-listing',
             '/api/2.0/marketplace-exchange/filters',
             '/api/2.0/marketplace-exchange/listings-for-exchange',
-            '/api/2.0/marketplace-provider/providers'
+            '/api/2.0/marketplace-provider/providers',
             '/api/2.0/marketplace-provider/files',
             '/api/2.0/marketplace-provider/listings',
             '/api/2.0/marketplace-provider/personalization-requests',
@@ -438,7 +521,7 @@ class SatDBClient:
             '/api/2.1/unity-catalog/bindings/.+/.+',
             '/api/2.1/unity-catalog/catalogs',
             '/api/2.1/unity-catalog/connections',
-            '/api/2.1/unity-catalog/credentials'
+            '/api/2.1/unity-catalog/credentials',
             '/api/2.1/unity-catalog/external-locations',
             '/api/2.1/unity-catalog/functions',
             '/api/2.1/unity-catalog/metastores/.+/systemschemas',#not used

@@ -167,6 +167,7 @@ def set_workspace_check_config():
         print(s_sql)
         spark.sql(s_sql)
     else:
+        param_values = {"analysis_enabled": analysis_enabled}
         s_sql = 'UPDATE  {analysis_schema_name}.account_workspaces SET '
         first_param = False
         for param in params:
@@ -174,7 +175,7 @@ def set_workspace_check_config():
                 val = params[param]
                 if first_param == True:
                     s_sql = s_sql + ","
-                s_sql = s_sql + val + "=" + eval(params[param])
+                s_sql = s_sql + val + "=" + param_values[val]
                 first_param = True
         print(s_sql)
         spark.sql(s_sql.format(analysis_schema_name=json_["analysis_schema_name"]))
